@@ -103,7 +103,7 @@ const sharedClientAndServerConfig = {
 // webpack settings used by all client entrypoints
 const clientConfig = {
   ...sharedClientAndServerConfig,
-  mode: isProd ? 'production' : 'development',
+  mode: isProd ? 'development' : 'development', // TODO: fix production (target minification isn't working)
   output: {
     path: destination,
     // this file will get added to the html template inline
