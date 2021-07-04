@@ -25,7 +25,7 @@ envVars.PORT = PORT;
 
 const isProd = process.env.NODE_ENV === 'production';
 const publicPath = process.env.ASSET_PATH || '/';
-const target = isProd ? 'browserslist' : 'web';
+const target = isProd ? 'web' : 'web';
 
 /*********************************
  *    define entrypoints
