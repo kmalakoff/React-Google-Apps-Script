@@ -215,9 +215,13 @@ const devServer = {
   https: true,
   liveReload: false,
   hot: true,
-  transportMode: 'sockjs',
   client: {
-    path: 'sockjs-node',
+    logging: 'verbose',
+    hotEntry: true,
+    transport: 'sockjs',
+    webSocketURL: {
+      pathname: '/sockjs-node/',
+    },
   },
   // run our own route to serve the package google-apps-script-webpack-dev-server
   onBeforeSetupMiddleware: ({ app }) => {
