@@ -8,9 +8,10 @@ const CopyWebpackPlugin = require('copy-webpack-plugin');
 const GasPlugin = require('gas-webpack-plugin');
 const TerserPlugin = require('terser-webpack-plugin');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
-const HtmlInlineScriptPlugin = require('html-inline-script-webpack-plugin');
+const HtmlWebpackInlineSourcePlugin = require('@effortlessmotion/html-webpack-inline-source-plugin');
 const DynamicCdnWebpackPlugin = require('@effortlessmotion/dynamic-cdn-webpack-plugin');
 const moduleToCdn = require('module-to-cdn');
+const ReactRefreshWebpackPlugin = require('@pmmmwh/react-refresh-webpack-plugin');
 
 /*********************************
  *    set up environment variables
@@ -101,7 +102,7 @@ const sharedClientAndServerConfig = {
 };
 
 // webpack settings used by all client entrypoints
-const clientConfig = {
+const clientConfig = ({ isDevClientWrapper }) => ({
   ...sharedClientAndServerConfig,
   mode: isProd ? 'development' : 'development', // TODO: fix production (target minification isn't working)
   output: {
@@ -123,6 +124,14 @@ const clientConfig = {
         use: [
           {
             loader: 'babel-loader',
+            // only enable react-refresh for dev builds, and not when building the dev client "wrapper"
+            options: {
+              plugins: [
+                !isProd &&
+                  !isDevClientWrapper &&
+                  require.resolve('react-refresh/babel'),
+              ].filter(Boolean),
+            },
           },
           {
             loader: 'ts-loader',
@@ -134,6 +143,14 @@ const clientConfig = {
         exclude: /node_modules/,
         use: {
           loader: 'babel-loader',
+          // only enable react-refresh for dev builds, and not when building the dev client "wrapper"
+          options: {
+            plugins: [
+              !isProd &&
+                !isDevClientWrapper &&
+                require.resolve('react-refresh/babel'),
+            ].filter(Boolean),
+          },
         },
       },
       // we could add support for scss here
@@ -143,7 +160,7 @@ const clientConfig = {
       },
     ],
   },
-};
+});
 
 // DynamicCdnWebpackPlugin settings
 // these settings help us load 'react', 'react-dom' and the packages defined below from a CDN
@@ -154,6 +171,13 @@ const DynamicCdnWebpackPluginConfig = {
   resolver: (packageName, packageVersion, options) => {
     const packageSuffix = isProd ? '.min.js' : '.js';
     const moduleDetails = moduleToCdn(packageName, packageVersion, options);
+
+    // don't externalize react during development due to issue with react-refresh
+    // https://github.com/pmmmwh/react-refresh-webpack-plugin/issues/334
+    if (!isProd && packageName === 'react') {
+      return null;
+    }
+
     if (moduleDetails) {
       return moduleDetails;
     }
@@ -182,26 +206,29 @@ const DynamicCdnWebpackPluginConfig = {
 
 // webpack settings used by each client entrypoint defined at top
 const clientConfigs = clientEntrypoints.map((clientEntrypoint) => {
+  const isDevClientWrapper = false;
   return {
-    ...clientConfig,
+    ...clientConfig({ isDevClientWrapper }),
     name: clientEntrypoint.name,
     entry: clientEntrypoint.entry,
     plugins: [
+      !isProd && new webpack.HotModuleReplacementPlugin(),
+      !isProd && new ReactRefreshWebpackPlugin(),
       new webpack.DefinePlugin({
         'process.env': JSON.stringify(envVars),
       }),
       new HtmlWebpackPlugin({
         template: clientEntrypoint.template,
         filename: `${clientEntrypoint.filename}${isProd ? '' : '-impl'}.html`,
-        inlineSource: '^[^(//)]+.(js|css)$', // embed all js and css inline, exclude packages with '//' for dynamic cdn insertion
+        inlineSource: '^/.*(js|css)$', // embed all js and css inline, exclude packages from dynamic cdn insertion
         scriptLoading: 'blocking',
         inject: 'body',
       }),
       // add the generated js code to the html file inline
-      new HtmlInlineScriptPlugin(),
+      new HtmlWebpackInlineSourcePlugin(),
       // this plugin allows us to add dynamically load packages from a CDN
       new DynamicCdnWebpackPlugin(DynamicCdnWebpackPluginConfig),
-    ],
+    ].filter(Boolean),
   };
 });
 
@@ -211,17 +238,12 @@ const gasWebpackDevServerPath = require.resolve(
 
 // webpack settings for devServer https://webpack.js.org/configuration/dev-server/
 const devServer = {
+  hot: true,
   port: PORT,
   https: true,
-  liveReload: false,
-  hot: true,
+  transportMode: 'sockjs',
   client: {
-    logging: 'verbose',
-    hotEntry: true,
-    transport: 'sockjs',
-    webSocketURL: {
-      pathname: '/sockjs-node/',
-    },
+    path: 'sockjs-node',
   },
   // run our own route to serve the package google-apps-script-webpack-dev-server
   onBeforeSetupMiddleware: ({ app }) => {
@@ -244,8 +266,9 @@ if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
 // webpack settings for the development client wrapper
 const devClientConfigs = clientEntrypoints.map((clientEntrypoint) => {
   envVars.FILENAME = clientEntrypoint.filename;
+  const isDevClientWrapper = true;
   return {
-    ...clientConfig,
+    ...clientConfig({ isDevClientWrapper }),
     name: `DEVELOPMENT: ${clientEntrypoint.name}`,
     entry: devDialogEntry,
     plugins: [
@@ -256,12 +279,12 @@ const devClientConfigs = clientEntrypoints.map((clientEntrypoint) => {
         template: './dev/index.html',
         // this should match the html files we load in src/server/ui.js
         filename: `${clientEntrypoint.filename}.html`,
-        inlineSource: '^[^(//)]+.(js|css)$', // embed all js and css inline, exclude packages with '//' for dynamic cdn insertion
+        inlineSource: '^/.*(js|css)$', // embed all js and css inline, exclude packages from dynamic cdn insertion
         scriptLoading: 'blocking',
         inject: 'body',
       }),
       // add the generated js code to the html file inline
-      new HtmlInlineScriptPlugin(),
+      new HtmlWebpackInlineSourcePlugin(),
       // this plugin allows us to add dynamically load packages from a CDN
       new DynamicCdnWebpackPlugin(DynamicCdnWebpackPluginConfig),
     ],
